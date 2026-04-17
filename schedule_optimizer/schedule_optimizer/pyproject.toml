@@ -1,0 +1,22 @@
+[project]
+name = "faker-data"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Napoleon",email = "vivahub01@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "faker (>=40.13.0,<41.0.0)",
+    "pandas (>=3.0.2,<4.0.0)",
+    "openpyxl (>=3.1.5,<4.0.0)",
+    "numpy (>=2.4.4,<3.0.0)",
+    "fastapi (>=0.135.3,<0.136.0)",
+    "uvicorn (>=0.44.0,<0.45.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
