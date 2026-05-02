@@ -1,36 +1,56 @@
 import pandas as pd
 from typing import List, Tuple
 from models import Lesson, Auditorium, TimeSlot, LessonType
+
+
 def load_lessons_from_excel(file_path: str) -> Tuple[List[Lesson], List[str]]:
     """Загрузка занятий из Excel-файла ведомости"""
     errors = []
     lessons = []
+
     try:
         df = pd.read_excel(file_path)
     except Exception as e:
         return [], [f"Ошибка чтения файла: {str(e)}"]
+
     required_cols = ['Дисциплина', 'Институт', 'Наименование направления подготовки',
                      'Наименование образовательной программы', 'Курс', 'Поток/учебная группа',
                      'Количество обучающихся', 'Фамилия, имя, отчество преподавателя',
                      'Вид занятия', 'Часов в семестре']
+
     for col in required_cols:
         if col not in df.columns:
             errors.append(f"Отсутствует колонка: {col}")
+
     if errors:
         return [], errors
+
     lesson_type_map = {
         'Лекции': LessonType.LECTURE,
+        'лекции': LessonType.LECTURE,
+        'Лекция': LessonType.LECTURE,
         'Практ. занятия': LessonType.PRACTICE,
-        'Лаб. занятия': LessonType.LAB
+        'практ. занятия': LessonType.PRACTICE,
+        'Практика': LessonType.PRACTICE,
+        'Семинар': LessonType.PRACTICE,
+        'Лаб. занятия': LessonType.LAB,
+        'лаб. занятия': LessonType.LAB,
+        'Лабораторная': LessonType.LAB
     }
+
     for idx, row in df.iterrows():
         try:
             # Пропускаем строки-разделители
             if pd.isna(row.get('Дисциплина')) or str(row['Дисциплина']).strip() == '':
                 continue
-            # Определяем тип занятия
-            lesson_type_str = str(row['Вид занятия']) if pd.notna(row['Вид занятия']) else 'Практ. занятия'
+
+            # Определяем тип занятия с проверкой на пустые значения
+            lesson_type_str = str(row.get('Вид занятия', '')).strip()
+            if not lesson_type_str or lesson_type_str == 'nan':
+                lesson_type_str = 'Практ. занятия'  # значение по умолчанию
+
             lesson_type = lesson_type_map.get(lesson_type_str, LessonType.PRACTICE)
+
             # Определяем количество студентов
             student_count = 20
             if pd.notna(row['Количество обучающихся']):
@@ -38,6 +58,7 @@ def load_lessons_from_excel(file_path: str) -> Tuple[List[Lesson], List[str]]:
                     student_count = int(row['Количество обучающихся'])
                 except:
                     student_count = 20
+
             # Определяем часы в семестре
             hours = 36
             if pd.notna(row['Часов в семестре']):
@@ -45,6 +66,7 @@ def load_lessons_from_excel(file_path: str) -> Tuple[List[Lesson], List[str]]:
                     hours = int(row['Часов в семестре'])
                 except:
                     hours = 36
+
             lesson = Lesson(
                 id=idx,
                 discipline=str(row['Дисциплина'])[:200],

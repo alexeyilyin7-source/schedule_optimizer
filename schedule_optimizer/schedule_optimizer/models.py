@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -21,6 +21,27 @@ class Lesson(BaseModel):
     lesson_type: LessonType
     hours_per_semester: int
     note: Optional[str] = ""
+
+    @field_validator('student_count')
+    @classmethod
+    def validate_student_count(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError('Количество студентов должно быть положительным')
+        return v
+
+    @field_validator('hours_per_semester')
+    @classmethod
+    def validate_hours(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError('Количество часов должно быть положительным')
+        return v
+
+    @field_validator('course')
+    @classmethod
+    def validate_course(cls, v: int) -> int:
+        if v < 1 or v > 4:
+            raise ValueError('Курс должен быть от 1 до 4')
+        return v
 
 class Auditorium(BaseModel):
     id: int

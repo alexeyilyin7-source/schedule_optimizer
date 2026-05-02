@@ -1,0 +1,10 @@
+﻿Компонент,Вес,Значение,Вклад
+teacher_conflict,1000.0,0.0,0.0
+group_conflict,1000.0,0.0,0.0
+auditorium_conflict,1000.0,0.0,0.0
+auditorium_mismatch,200.0,0.0,0.0
+windows,50.0,0.0,0.0
+load_imbalance,30.0,0.0,0.0
+teacher_preference,20.0,2.0,40.0
+even_odd_violation,15.0,0.0,0.0
+ИТОГО,-,40.0,40.0

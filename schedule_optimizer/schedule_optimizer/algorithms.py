@@ -1,7 +1,8 @@
+# algorithms.py
 import math
 import random
 import time
-from collections import defaultdict
+from collections import defaultdict, Counter
 from typing import Dict, List, Optional, Tuple
 
 from models import Auditorium, Lesson, LessonType, TimeSlot
@@ -14,13 +15,16 @@ class ScheduleOptimizer:
         self.lessons = lessons
         self.auditoriums = auditoriums
         self.time_slots = time_slots
-        self.days = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"]
+        self.days = sorted(list({slot.day for slot in self.time_slots}))
 
+        # Параметры алгоритмов (как указано в дипломе)
         self.population_size = 24
         self.generations = 35
         self.mutation_rate = 0.10
         self.crossover_rate = 0.80
+        self.sa_max_iterations = 1200
 
+        # Весовые коэффициенты для целевой функции (Fitness-функции)
         self.weights = {
             "teacher_conflict": 1000.0,
             "group_conflict": 1000.0,
@@ -42,8 +46,6 @@ class ScheduleOptimizer:
         preferences: Dict[str, Dict] = {}
         for teacher in {lesson.teacher for lesson in self.lessons}:
             preferences[teacher] = {"max_pairs_per_day": 6}
-
-        for teacher in preferences:
             if random.random() < 0.25:
                 preferences[teacher]["avoid_days"] = random.sample(self.days, k=1)
                 preferences[teacher]["max_pairs_per_day"] = random.choice([4, 5, 6])
@@ -98,7 +100,9 @@ class ScheduleOptimizer:
 
         return individual
 
-    def _calculate_fitness(self, individual: ScheduleVector, lesson_map: Dict[int, Lesson], aud_map: Dict[int, Auditorium], slot_map: Dict[int, TimeSlot]) -> Tuple[float, Dict[str, float]]:
+    def _calculate_fitness(self, individual: ScheduleVector, lesson_map: Dict[int, Lesson],
+                           aud_map: Dict[int, Auditorium], slot_map: Dict[int, TimeSlot]) -> Tuple[
+        float, Dict[str, float]]:
         violations = {
             "teacher_conflict": 0.0,
             "group_conflict": 0.0,
@@ -209,6 +213,7 @@ class ScheduleOptimizer:
                 mutated[idx] = (lesson_id, aud.id, slot.id, parity)
         return mutated
 
+    # Главный алгоритм Генетический
     def genetic_algorithm(self) -> Tuple[ScheduleVector, float, Dict[str, float], float]:
         start = time.time()
         if not self.lessons or not self.auditoriums or not self.time_slots:
@@ -227,7 +232,7 @@ class ScheduleOptimizer:
         best_fitness = float("inf")
         best_violations: Dict[str, float] = {}
 
-        for _ in range(self.generations):
+        for generation in range(self.generations):
             fitnesses = []
             for individual in population:
                 fitness, violations = self._calculate_fitness(individual, lesson_map, aud_map, slot_map)
@@ -250,9 +255,16 @@ class ScheduleOptimizer:
                 next_population[0] = best_solution[:]
             population = next_population
 
+            # Ранняя остановка, если нашли идеальное решение
+            if best_fitness == 0.0:
+                print(f"    Генетический алгоритм: найдено идеальное решение на поколении {generation}")
+                break
+
         return best_solution, best_fitness, best_violations, (time.time() - start) * 1000.0
 
-    def simulated_annealing(self, initial_solution: Optional[ScheduleVector] = None, max_iterations: int = 1200) -> Tuple[ScheduleVector, float, Dict[str, float], float]:
+    # Алгоритм улучшения - Имитации отжига
+    def simulated_annealing(self, initial_solution: Optional[ScheduleVector] = None, max_iterations: int = 1200) -> \
+    Tuple[ScheduleVector, float, Dict[str, float], float]:
         start = time.time()
         if not self.lessons or not self.auditoriums or not self.time_slots:
             return [], float("inf"), {}, 0.0
@@ -261,6 +273,7 @@ class ScheduleOptimizer:
         aud_map = {aud.id: aud for aud in self.auditoriums}
         slot_map = {slot.id: slot for slot in self.time_slots}
 
+        # Используем переданное решение, иначе создаем новое
         current = initial_solution[:] if initial_solution else self._create_individual()
         if not current:
             return [], float("inf"), {}, 0.0
@@ -305,6 +318,7 @@ class ScheduleOptimizer:
 
         return best, best_fitness, best_violations, (time.time() - start) * 1000.0
 
+    # Резервный алгоритм - Жадный
     def greedy_algorithm(self) -> Tuple[ScheduleVector, float, Dict[str, float], float]:
         start = time.time()
         if not self.lessons or not self.auditoriums or not self.time_slots:
@@ -319,7 +333,12 @@ class ScheduleOptimizer:
         used_group = set()
         used_aud = set()
 
-        sorted_lessons = sorted(self.lessons, key=lambda lesson: (lesson.lesson_type != LessonType.LECTURE, -lesson.student_count, -lesson.hours_per_semester))
+        # Сортируем занятия: сначала лекции для больших групп, потом по убыванию часов
+        sorted_lessons = sorted(self.lessons, key=lambda lesson: (
+            lesson.lesson_type != LessonType.LECTURE,
+            -lesson.student_count,
+            -lesson.hours_per_semester
+        ))
 
         for lesson in sorted_lessons:
             best_choice = None
@@ -353,19 +372,30 @@ class ScheduleOptimizer:
         final_fitness, final_violations = self._calculate_fitness(schedule, lesson_map, aud_map, slot_map)
         return schedule, final_fitness, final_violations, (time.time() - start) * 1000.0
 
+    # Комбинаторный алгоритм: объединяет все три (ГА -> Отжиг -> Жадный)
     def run_combined_optimization(self) -> Dict:
+        print("\nЗапуск комбинаторного алгоритма оптимизации...")
         results: Dict[str, Dict] = {}
 
+        # 1. Запуск основного алгоритма
+        print("  1/3 Запуск генетического алгоритма (ГА)...")
         ga_solution, ga_fitness, ga_violations, ga_time = self.genetic_algorithm()
         results["genetic"] = {
             "solution": ga_solution,
             "fitness": ga_fitness,
             "violations": ga_violations,
             "time_ms": ga_time,
+            "algorithm_name": "Генетический алгоритм (ГА) - основной"
         }
+        print(f"     ГА завершен. F(X) = {ga_fitness:.2f}")
 
+        # 2. Запуск алгоритма улучшения
+        print("  2/3 Запуск алгоритма имитации отжига (АИО) для улучшения решения ГА...")
         if ga_solution:
-            sa_solution, sa_fitness, sa_violations, sa_time = self.simulated_annealing(initial_solution=ga_solution)
+            sa_solution, sa_fitness, sa_violations, sa_time = self.simulated_annealing(
+                initial_solution=ga_solution,
+                max_iterations=self.sa_max_iterations
+            )
         else:
             sa_solution, sa_fitness, sa_violations, sa_time = [], float("inf"), {}, 0.0
 
@@ -374,28 +404,54 @@ class ScheduleOptimizer:
             "fitness": sa_fitness,
             "violations": sa_violations,
             "time_ms": sa_time,
+            "algorithm_name": "Алгоритм имитации отжига (АИО) - улучшение"
         }
+        print(f"     АИО завершен. F(X) = {sa_fitness:.2f}")
 
+        # 3. Выбор лучшего между ГА и Отжигом
         best_algo = "annealing" if sa_fitness < ga_fitness else "genetic"
         best_payload = results[best_algo]
+        print(f"   Лучший результат после первых двух этапов: {best_payload['algorithm_name']}")
 
-        if not best_payload["solution"]:
+        # 4. Если результат неудовлетворительный, запускаем резервный алгоритм
+        if ga_fitness == float("inf") and sa_fitness == float("inf"):
+            print("  3/3 Запуск жадного алгоритма (резервный)...")
             greedy_solution, greedy_fitness, greedy_violations, greedy_time = self.greedy_algorithm()
             results["greedy"] = {
                 "solution": greedy_solution,
                 "fitness": greedy_fitness,
                 "violations": greedy_violations,
                 "time_ms": greedy_time,
+                "algorithm_name": "Жадный алгоритм (резервный)"
             }
             best_algo = "greedy"
             best_payload = results["greedy"]
+            print(f"     Жадный алгоритм завершен. F(X) = {greedy_fitness:.2f}")
+        else:
+            print("  3/3 Решение найдено, жадный алгоритм не требуется.")
+            # Создаем пустую запись для жадного для консистентности структуры
+            results["greedy"] = {
+                "solution": [],
+                "fitness": float("inf"),
+                "violations": {},
+                "time_ms": 0,
+                "algorithm_name": "Жадный (не запускался)"
+            }
 
+        # Финальный результат
+        used_algorithm_name = best_payload.get("algorithm_name", best_algo)
         results["best"] = {
             "algorithm": best_algo,
+            "algorithm_name": used_algorithm_name,
             "solution": best_payload["solution"],
             "fitness": best_payload["fitness"],
             "violations": best_payload["violations"],
             "time_ms": best_payload["time_ms"],
         }
-        return results
 
+        all_time = ga_time + sa_time + results["greedy"]["time_ms"]
+        print(f"\n=== Комбинаторная оптимизация завершена ===")
+        print(f"Лучший алгоритм: {used_algorithm_name}")
+        print(f"Итоговая F(X): {best_payload['fitness']:.2f}")
+        print(f"Общее время: {all_time:.0f} мс\n")
+        return results

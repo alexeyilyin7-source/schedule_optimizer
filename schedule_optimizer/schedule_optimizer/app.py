@@ -246,6 +246,7 @@ HTML_PAGE = """
             selectedAlgorithm = algo;
             document.querySelectorAll('.algo-card').forEach(card => card.classList.remove('selected'));
             document.querySelector(`.algo-card[data-algo="${algo}"]`).classList.add('selected');
+            console.log('Выбран алгоритм:', algo);
         }
 
         document.getElementById('schedule-file').addEventListener('change', function(e) {
@@ -269,6 +270,8 @@ HTML_PAGE = """
                 return;
             }
 
+            console.log('Запуск оптимизации с алгоритмом:', selectedAlgorithm);
+
             const loading = document.getElementById('loading');
             const resultsDiv = document.getElementById('results');
             const btn = document.getElementById('optimize-btn');
@@ -287,6 +290,8 @@ HTML_PAGE = """
             try {
                 const response = await fetch('/optimize', { method: 'POST', body: formData });
                 const data = await response.json();
+
+                console.log('Ответ от сервера:', data);
 
                 if (data.error) {
                     showError('❌ Ошибка: ' + data.error);
@@ -310,7 +315,7 @@ HTML_PAGE = """
 
         function displayResults(data) {
             document.getElementById('fitness-value').textContent = data.fitness_score.toFixed(2);
-            document.getElementById('algorithm-used').textContent = getAlgorithmName(data.algorithm_used);
+            document.getElementById('algorithm-used').textContent = data.algorithm_used;
             document.getElementById('execution-time').textContent = `Время: ${data.execution_time_ms.toFixed(0)} мс`;
 
             const violationsGrid = document.getElementById('violations-grid');
@@ -323,16 +328,6 @@ HTML_PAGE = """
                 <div class="violation-item info"><strong>⚖️ Неравномерность нагрузки</strong><br>${(data.violations.load_imbalance || 0).toFixed(2)}</div>
             `;
             buildScheduleTable(data.schedule);
-        }
-
-        function getAlgorithmName(algo) {
-            const names = {
-                'genetic': '🧬 Генетический алгоритм',
-                'annealing': '🌡️ Алгоритм имитации отжига',
-                'greedy': '⚡ Жадный алгоритм',
-                'combined': '🏆 Комбинированный алгоритм'
-            };
-            return names[algo] || algo;
         }
 
         function buildScheduleTable(schedule) {
@@ -428,25 +423,30 @@ async def health() -> Dict[str, str]:
 
 @app.post("/optimize")
 async def optimize_schedule(
-    schedule_file: UploadFile = File(...),
-    auditorium_file: UploadFile = File(...),
-    algorithm: str = "combined",
+        schedule_file: UploadFile = File(...),
+        auditorium_file: UploadFile = File(...),
+        algorithm: str = "combined",
 ) -> Dict[str, Any]:
     schedule_path = ""
     auditorium_path = ""
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_schedule:
-        tmp_schedule.write(await schedule_file.read())
-        schedule_path = tmp_schedule.name
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_aud:
-        tmp_aud.write(await auditorium_file.read())
-        auditorium_path = tmp_aud.name
-
     try:
+        print(f"\n=== ЗАПУСК ОПТИМИЗАЦИИ ===")
+        print(f"Выбранный алгоритм: {algorithm}")
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_schedule:
+            tmp_schedule.write(await schedule_file.read())
+            schedule_path = tmp_schedule.name
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_aud:
+            tmp_aud.write(await auditorium_file.read())
+            auditorium_path = tmp_aud.name
+
         lessons, lesson_errors = load_lessons_from_excel(schedule_path)
         auditoriums, auditorium_errors = load_auditoriums_from_excel(auditorium_path)
         time_slots = create_time_slots()
+
+        print(f"Загружено занятий: {len(lessons)}, аудиторий: {len(auditoriums)}, слотов: {len(time_slots)}")
 
         if lesson_errors or auditorium_errors:
             return {"error": f"Ошибки загрузки: {lesson_errors + auditorium_errors}"}
@@ -456,32 +456,61 @@ async def optimize_schedule(
             return {"error": "Не найдено аудиторий для оптимизации. Проверьте формат файла."}
 
         if len(lessons) > MAX_LESSONS_FOR_DEMO:
+            print(f"Ограничение количества занятий до {MAX_LESSONS_FOR_DEMO}")
             lessons = lessons[:MAX_LESSONS_FOR_DEMO]
 
         optimizer = ScheduleOptimizer(lessons, auditoriums, time_slots)
 
+        solution = []
+        fitness = float("inf")
+        violations = {}
+        exec_time = 0.0
+        algo_used = ""
+
+        # 🔥 ВАЖНО: Выбор алгоритма в зависимости от параметра
         if algorithm == "genetic":
+            print(">>> Запуск ГЕНЕТИЧЕСКОГО АЛГОРИТМА")
             solution, fitness, violations, exec_time = optimizer.genetic_algorithm()
-            algo_used = "genetic"
+            algo_used = "🧬 Генетический алгоритм (ГА) - основной"
+
         elif algorithm == "annealing":
-            base_solution, _, _, _ = optimizer.genetic_algorithm()
-            solution, fitness, violations, exec_time = optimizer.simulated_annealing(initial_solution=base_solution)
-            algo_used = "annealing"
+            print(">>> Запуск АЛГОРИТМА ИМИТАЦИИ ОТЖИГА")
+            # Сначала получаем начальное решение через ГА
+            base_solution, base_fitness, _, ga_time = optimizer.genetic_algorithm()
+            print(f"   ГА завершен. F(X) = {base_fitness:.2f}")
+
+            # Затем улучшаем через отжиг
+            solution, fitness, violations, sa_time = optimizer.simulated_annealing(
+                initial_solution=base_solution,
+                max_iterations=1200
+            )
+            exec_time = ga_time + sa_time
+            algo_used = "🌡️ Алгоритм имитации отжига (АИО) - улучшение"
+            print(f"   АИО завершен. F(X) = {fitness:.2f}")
+
         elif algorithm == "greedy":
+            print(">>> Запуск ЖАДНОГО АЛГОРИТМА")
             solution, fitness, violations, exec_time = optimizer.greedy_algorithm()
-            algo_used = "greedy"
-        else:
+            algo_used = "⚡ Жадный алгоритм (резервный)"
+
+        else:  # combined
+            print(">>> Запуск КОМБИНИРОВАННОГО АЛГОРИТМА")
             result = optimizer.run_combined_optimization()
             best = result["best"]
             solution = best["solution"]
             fitness = best["fitness"]
             violations = best["violations"]
             exec_time = best["time_ms"]
-            algo_used = best["algorithm"]
+
+            # Определяем, какой алгоритм дал лучший результат
+            algo_used = f"🏆 Комбинированный: {best.get('algorithm_name', best['algorithm'])}"
+
+        print(f"Результат: F(X) = {fitness:.2f}, время = {exec_time:.0f} мс, алгоритм = {algo_used}")
 
         if not solution:
-            return {"error": "Не удалось найти решение. Попробуйте другой алгоритм."}
+            return {"error": "Не удалось найти решение. Попробуйте другой алгоритм или проверьте исходные данные."}
 
+        # Создаем записи расписания
         lesson_map = {l.id: l for l in lessons}
         aud_map = {a.id: a for a in auditoriums}
         slot_map = {s.id: s for s in time_slots}
@@ -511,14 +540,21 @@ async def optimize_schedule(
             for key, value in violations.items()
         }
 
+        print(f"Сформировано записей расписания: {len(schedule_entries)}")
+        print(f"Отправляемый algorithm_used: {algo_used}")
+
         return {
             "schedule": schedule_entries,
             "fitness_score": float(fitness) if fitness != float("inf") else 999999.0,
-            "algorithm_used": algo_used,
+            "algorithm_used": algo_used,  # 🔥 Отправляем правильное имя алгоритма
             "violations": normalized_violations,
             "execution_time_ms": float(exec_time),
         }
+
     except Exception as exc:
+        print(f"❌ Ошибка при оптимизации: {exc}")
+        import traceback
+        traceback.print_exc()
         return {"error": f"Ошибка при оптимизации: {exc}"}
     finally:
         _safe_remove(schedule_path)

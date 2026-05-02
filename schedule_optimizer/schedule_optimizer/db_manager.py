@@ -3,7 +3,6 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 import json
 from typing import List, Dict
 
-# Исправлено: используем правильный импорт declarative_base
 Base = declarative_base()
 
 
@@ -33,6 +32,9 @@ class Teacher(Base):
     phone = Column(String(16))
     preferences = Column(Text)
 
+    department = relationship("Department", backref="teachers")
+    institute = relationship("Institute", backref="teachers")
+
 
 class StudentGroup(Base):
     __tablename__ = 'student_groups'
@@ -43,6 +45,9 @@ class StudentGroup(Base):
     course = Column(Integer, nullable=False)
     level = Column(String(20))
     student_count = Column(Integer)
+
+    institute = relationship("Institute", backref="student_groups")
+    department = relationship("Department", backref="student_groups")
 
 
 class Discipline(Base):
@@ -63,6 +68,10 @@ class Curriculum(Base):
     semester = Column(String(20))
     even_weeks = Column(Integer, default=1)
     odd_weeks = Column(Integer, default=1)
+
+    group = relationship("StudentGroup", backref="curriculums")
+    discipline = relationship("Discipline", backref="curriculums")
+    teacher = relationship("Teacher", backref="curriculums")
 
 
 class Auditorium(Base):
@@ -95,6 +104,11 @@ class ScheduleRecord(Base):
     created_at = Column(String(50))
     is_cancelled = Column(Integer, default=0)
     cancel_reason = Column(Text)
+
+    curriculum = relationship("Curriculum", backref="schedule_records")
+    auditorium = relationship("Auditorium", backref="schedule_records")
+    time_slot = relationship("TimeSlot", backref="schedule_records")
+    discipline = relationship("Discipline", backref="schedule_records")
 
 
 class ScheduleDB:
@@ -129,6 +143,5 @@ class ScheduleDB:
 
 
 if __name__ == "__main__":
-    # Тестирование БД
     db = ScheduleDB("test_schedule.db")
     print("✅ База данных успешно создана")
